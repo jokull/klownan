@@ -245,6 +245,64 @@ const getPaymentCards = async () =>
 const getRecommendations = async () =>
   api("/products/recommendations/personalized-lists/", { headers: await authHeaders() });
 
+// Login flow
+
+const COGNITO_URL = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/`;
+const COGNITO_HEADERS = {
+  "content-type": "application/x-amz-json-1.1",
+};
+
+async function cognitoCall(target: string, body: unknown) {
+  const resp = await fetch(COGNITO_URL, {
+    method: "POST",
+    headers: { ...COGNITO_HEADERS, "x-amz-target": `AWSCognitoIdentityProviderService.${target}` },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`Cognito ${target}: ${resp.status} ${await resp.text()}`);
+  return resp.json();
+}
+
+async function login(kennitala: string): Promise<void> {
+  const initData = await cognitoCall("InitiateAuth", {
+    AuthFlow: "CUSTOM_AUTH",
+    AuthParameters: { USERNAME: kennitala },
+    ClientId: COGNITO_CLIENT_ID,
+  });
+
+  const code = initData.ChallengeParameters?.code;
+  console.log(`\n  Auðkenni code: ${code}\n`);
+  console.log("  Confirm on your device...\n");
+
+  let session = initData.Session;
+  for (let i = 0; i < 60; i++) {
+    const data = await cognitoCall("RespondToAuthChallenge", {
+      ChallengeName: "CUSTOM_CHALLENGE",
+      ChallengeResponses: { USERNAME: kennitala, ANSWER: "answer" },
+      Session: session,
+      ClientId: COGNITO_CLIENT_ID,
+    });
+
+    if (data.AuthenticationResult) {
+      const cookies: CookieEntry[] = [
+        { name: "id_token", value: data.AuthenticationResult.IdToken, domain: "kronan.is" },
+        { name: "refresh_token", value: data.AuthenticationResult.RefreshToken, domain: "kronan.is" },
+      ];
+      writeCookies(cookies);
+      console.log("  Logged in!\n");
+      return;
+    }
+
+    if (data.ChallengeName === "CUSTOM_CHALLENGE") {
+      session = data.Session;
+      await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+
+    throw new Error(`Unexpected auth response: ${JSON.stringify(data).substring(0, 200)}`);
+  }
+  throw new Error("Login timed out");
+}
+
 // Group context
 
 function readGroupId(): number | null {
@@ -430,6 +488,16 @@ switch (cmd) {
     break;
   }
 
+  case "login": {
+    const kt = args[0];
+    if (!kt) {
+      console.error("Usage: klownan login <kennitala>");
+      process.exit(1);
+    }
+    await login(kt);
+    break;
+  }
+
   case "me": {
     const me = (await getMe()) as Record<string, unknown>;
     console.log(`${me.name}`);
@@ -499,7 +567,8 @@ Public:
   klownan categories              List all categories
   klownan stores                  List stores
 
-Authenticated (KRONAN_TOKEN):
+Authenticated:
+  klownan login <kennitala>        Login via Auðkenni
   klownan me                      Your profile
   klownan groups                  List groups (households/companies)
   klownan use <name|id>           Switch active group
@@ -513,5 +582,6 @@ Authenticated (KRONAN_TOKEN):
   klownan recommendations         Personalized product recommendations
 
 Environment:
-  KRONAN_TOKEN    Cognito JWT from browser session`);
+  KRONAN_TOKEN    Override auth (optional)
+  KRONAN_GROUP    Override active group (optional)`);
 }
