@@ -1,0 +1,15 @@
+{
+  "name": "klownan",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "klownan": "index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
