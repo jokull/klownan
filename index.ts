@@ -495,6 +495,17 @@ switch (cmd) {
       process.exit(1);
     }
     await login(kt);
+    const groups = await getGroups();
+    const activeId = readGroupId();
+    console.log("  Groups:");
+    for (const g of groups) {
+      const marker = g.id === activeId ? " *" : "";
+      console.log(`    ${g.id}  ${g.name}  (${g.type})${marker}`);
+    }
+    if (!activeId) {
+      console.log("\n  Set active group with: klownan use <name>");
+    }
+    console.log();
     break;
   }
 
